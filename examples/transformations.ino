@@ -1,6 +1,6 @@
 /**
  * @file transformations.ino
- * @author Your Name
+ * @author Matthew Sylvester
  * @brief Demonstrates the use of transformations for animation.
  * * This sketch draws a simple square and uses the rotate() and scale()
  * functions inside the main loop to create a continuous spinning

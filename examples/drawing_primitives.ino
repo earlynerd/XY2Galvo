@@ -1,6 +1,6 @@
 /**
  * @file drawing_primitives.ino
- * @author Your Name
+ * @author Matthew Sylvester
  * @brief Demonstrates various drawing commands in the XY2Galvo library.
  * * This sketch shows how to use different drawing functions like drawLine,
  * drawRect, and drawPolygon to create more complex shapes.

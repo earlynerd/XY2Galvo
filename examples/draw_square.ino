@@ -1,6 +1,6 @@
 /**
  * @file draw_square.ino
- * @author Your Name
+ * @author Matthew SYlvester
  * @brief A basic "Hello World" example for the XY2Galvo library.
  * * This sketch initializes the XY2Galvo library and draws a simple
  * square in the center of the projection field. It demonstrates the
