@@ -37,9 +37,6 @@ The library requires a specific pinout to work with the PIO programs. The differ
 
 `LASER`: `GPIO22` (Laser enable/modulation signal)
 
-Important: The XY2-100 protocol uses differential signals, which are typically +/-5V. The Raspberry Pi Pico's GPIOs are 3.3V logic. You will need appropriate level-shifting hardware (e.g., differential line drivers like the SN75176B) between the Pico and your galvanometer driver board.
-
-
 ## Drawing Commands
 `moveTo(Point dest)`: Moves the scanner to a destination point with the laser off.
 
