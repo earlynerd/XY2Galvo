@@ -5,7 +5,7 @@
   "keywords": "laser, galvo, xy2-100, pio, pico, raspberry pi, rp2040",
   "repository": {
     "type": "git",
-    "url": ""
+    "url": "https://github.com/earlynerd/XY2Galvo"
   },
   "authors": [
     {
