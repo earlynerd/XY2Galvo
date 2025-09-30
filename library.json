@@ -1,16 +1,16 @@
 {
-  "name": "XY2Laser",
+  "name": "XY2gALVO",
   "version": "1.0.0",
   "description": "A library to control XY2-100 galvo laser scanners with a Raspberry Pi Pico using PIO.",
-  "keywords": "laser, galvo, xy2-100, pio, pico, raspberry pi",
+  "keywords": "laser, galvo, xy2-100, pio, pico, raspberry pi, rp2040",
   "repository": {
     "type": "git",
     "url": ""
   },
   "authors": [
     {
-      "name": "Your Name",
-      "email": "you@example.com"
+      "name": "Matt Sylvester",
+      "email": ""
     }
   ],
   "license": "BSD-3-Clause",
