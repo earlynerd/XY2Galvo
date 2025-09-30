@@ -1,5 +1,5 @@
 {
-  "name": "XY2gALVO",
+  "name": "XY2Galvo",
   "version": "1.0.0",
   "description": "A library to control XY2-100 galvo laser scanners with a Raspberry Pi Pico using PIO.",
   "keywords": "laser, galvo, xy2-100, pio, pico, raspberry pi, rp2040",
