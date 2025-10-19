@@ -90,7 +90,8 @@ void XY2Galvo::init() {
 	sm_config_set_sideset_pins(&c, PIN_XY2_SYNC_XY);
 	pio_sm_init(PIO_XY2, sm_laser, offset + xy2_laser_offset_start, &c);
 
-	gpio_set_outover(PIN_XY2_LASER, GPIO_OVERRIDE_INVERT);
+	//gpio_set_outover(PIN_XY2_LASER, GPIO_OVERRIDE_INVERT);
+    gpio_set_outover(PIN_XY2_LASER, GPIO_OVERRIDE_NORMAL);      //un-invert laser control signal
 }
 
 void XY2Galvo::start() {
