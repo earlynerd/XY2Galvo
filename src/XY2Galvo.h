@@ -15,23 +15,14 @@
 #include "Queue.h"
 #include "XY2-100.pio.h"
 
-// --- Merged from standard_types.h & cdefs.h ---
-using FLOAT = float;
-typedef const char* cstr;
-//template<typename T> static inline T min(T a,T b) { return a<=b?a:b; }
-//template<typename T> static inline T max(T a,T b) { return a>=b?a:b; }
-// --- End Merged ---
-
-
-// --- Merged from settings.h ---
-constexpr uint32_t XY2_SM_CLOCK = 8000000;
-constexpr uint32_t XY2_DATA_CLOCK = 100000;
-
 // --- Pin Definitions ---
 // The PIO program uses differential signaling for Clock, Sync, X, and Y.
 // Each signal uses a pair of consecutive GPIO pins. You only need to define
 // the base pin for each pair. The library and PIO will handle the second pin
 // automatically (base_pin + 1).
+
+constexpr uint32_t XY2_SM_CLOCK = 8000000;
+constexpr uint32_t XY2_DATA_CLOCK = 100000;
 
 // Differential Clock Signal
 constexpr uint PIN_XY2_CLOCK      = 8;  // CLOCK+ goes here
@@ -53,33 +44,36 @@ constexpr uint PIN_XY2_X_NEG      = PIN_XY2_X + 1;     // X- goes here (15)
 constexpr uint PIN_XY2_SYNC_XY    = 16; // Synchronization for PIO state machines
 constexpr uint PIN_XY2_LASER	  = 22; // Laser ON/OFF control
 
-
+// --- Scanner Hardware Constants ---
 constexpr int32_t SCANNER_MAX = 0xffff;
 constexpr float SCANNER_MAX_SWIVELS = 15000.0f / 120.0f;
 constexpr float SCANNER_WIDTH = 0x10000;
-constexpr float SCANNER_MAX_SPEED = SCANNER_MAX_SWIVELS * SCANNER_WIDTH / XY2_DATA_CLOCK;
-// --- End Merged ---
+constexpr float SCANNER_MAX_STEP_SPEED = SCANNER_MAX_SWIVELS * SCANNER_WIDTH / XY2_DATA_CLOCK;
+constexpr float MAX_SPEED_UPS = SCANNER_MAX_STEP_SPEED * XY2_DATA_CLOCK;
+
+// --- Motion Smoothing ---
+// This determines how frequently the planner on Core 0 sends updates for slow movements.
+// Higher values result in smoother motion at the cost of more commands in the queue.
+constexpr float TARGET_UPDATE_RATE_HZ = 100.0f;
+// --- End Pin Definitions & Constants ---
 
 #define PIO_XY2 pio0
 
 struct LaserSet
 {
-	FLOAT speed;
+	float speed;    // Speed in galvo units per second.
 	uint pattern;
-	uint delay_a;	// steps to wait after start before laser ON
-	uint delay_m;	// steps to wait at middle points in polygon lines
-	uint delay_e;	// steps to wait with laser ON after end of line
+	uint delay_a;	// steps to wait after start before laser ON (*10 us)
+	uint delay_m;	// steps to wait at middle points in polygon lines (*10 us)
+	uint delay_e;	// steps to wait with laser ON after end of line (*10 us)
 };
 
 enum DrawCmd
 {
 	CMD_END = 0,
 	CMD_MOVETO,
-	CMD_DRAWTO,
 	CMD_LINETO,
-	CMD_LINE,
-	CMD_RECT,
-	CMD_POLYLINE,
+	CMD_DWELL,
 	CMD_RESET_TRANSFORMATION,
 	CMD_SET_TRANSFORMATION,
     CMD_SET_TRANSFORMATION_3D,
@@ -88,15 +82,13 @@ enum DrawCmd
 union Data32
 {
 	DrawCmd cmd;
-	const LaserSet* set;
-	FLOAT f;
+	float f;
 	uint  u;
 	int   i;
 	Data32(DrawCmd c) : cmd(c){}
-	Data32(FLOAT f)   : f(f)  {}
+	Data32(float f)   : f(f)  {}
 	Data32(uint  u)   : u(u)  {}
 	Data32(int   i)   : i(i)  {}
-	Data32(const LaserSet* s) : set(s) {}
 	Data32(){}
 	~Data32(){}
 };
@@ -104,9 +96,6 @@ union Data32
 enum PolyLineOptions
 {
 	POLYLINE_DEFAULT  = 0,
-	POLYLINE_NO_START = 1,
-	POLYLINE_NO_END   = 2,
-	POLYLINE_INFINITE = 3,
 	POLYLINE_CLOSED   = 4
 };
 
@@ -133,21 +122,23 @@ public:
 
     // Drawing commands
 	void moveTo (const Point& dest);
-	void drawTo (const Point& dest, const LaserSet&);
 	void drawLine (const Point& start, const Point& dest, const LaserSet&);
 	void drawRect (const Rect& rect, const LaserSet&);
 	void drawPolyLine (uint count, const Point points[], const LaserSet&, PolyLineOptions=POLYLINE_DEFAULT);
 	void drawPolygon (uint count, const Point points[], const LaserSet&);
+
+    // Timing command
+    void wait(uint32_t microseconds);
 
     // Transformation commands
 	void resetTransformation();
 	void setTransformation (const Transformation& transformation);
     void pushTransformation();
     void popTransformation();
-    void rotate(FLOAT rad);
-    void scale(FLOAT s);
-    void scale(FLOAT sx, FLOAT sy);
-    void addOffset(FLOAT dx, FLOAT dy);
+    void rotate(float rad);
+    void scale(float s);
+    void scale(float sx, float sy);
+    void addOffset(float dx, float dy);
 
 
 private:
@@ -157,16 +148,12 @@ private:
 	static uint delayed_laser_value (uint value);
 
 	static void pio_wait_free();
-	static void pio_send_data (FLOAT x, FLOAT y, uint32_t laser);
+	static void pio_send_data (float x, float y, uint32_t laser);
 	static void send_data_blocking (const Point& p, uint32_t laser);
 
-	static void draw_to (Point dest, FLOAT speed, uint laser_on_pattern, uint& laser_on_delay, uint end_delay);
-	static void move_to (const Point& dest);
-	static void line_to (const Point& dest, const LaserSet&);
-	static void draw_line (const Point& start, const Point& dest, const LaserSet&);
-	static void draw_rect (const Rect& rect, const LaserSet&);
-	static void draw_polyline (uint count, std::function<Point()> next_point, const LaserSet&, uint flags);
-
+	// Core 1 (worker) functions
+	static void execute_lineto (Point dest, uint pattern);
+	
     // PIO state machines
 	static constexpr uint sm_laser  = 0;
 	static constexpr uint sm_clock  = 1;
@@ -182,3 +169,4 @@ private:
 };
 
 #endif // XY2Galvo_H
+

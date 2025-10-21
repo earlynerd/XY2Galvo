@@ -10,21 +10,16 @@ Transformation XY2Galvo::transformation_stack[8];
 uint XY2Galvo::transformation_stack_index = 0;
 
 static volatile bool core1_running = false;
-static volatile bool core1_suspend = false;
-static volatile bool core1_suspended = false;
 
-static uint laser_delay_queue[16] = {0};
-static uint laser_delay_size = 14; // From LASER_QUEUE_DELAY
-static uint laser_delay_index = 0;
-
-// Pre-defined laser settings
+// Pre-defined laser settings with speed in units per second.
 LaserSet laser_set[] =
 {
-	{.speed=SCANNER_MAX_SPEED, .pattern=0x003, .delay_a=0, .delay_m=0, .delay_e=20},	// 0: jump
-	{.speed=SCANNER_MAX_SPEED, .pattern=0x3FF, .delay_a=0, .delay_m=6, .delay_e=0},	// 1: fast straight
-	{.speed=SCANNER_MAX_SPEED*2/3, .pattern=0x3FF, .delay_a=0, .delay_m=6, .delay_e=0},	// 2: slow straight
-	{.speed=SCANNER_MAX_SPEED, .pattern=0x3FF, .delay_a=0, .delay_m=0, .delay_e=0},	// 3: fast rounded
-	{.speed=SCANNER_MAX_SPEED*2/3, .pattern=0x3FF, .delay_a=0, .delay_m=0, .delay_e=0},	// 4: slow rounded
+	{.speed=MAX_SPEED_UPS,        .pattern=0x003, .delay_a=0, .delay_m=0, .delay_e=20}, // 0: jump (laser off pattern)
+	{.speed=MAX_SPEED_UPS * 0.8f, .pattern=0x3FF, .delay_a=10, .delay_m=6, .delay_e=10},  // 1: fast straight
+	{.speed=MAX_SPEED_UPS * 0.4f, .pattern=0x3FF, .delay_a=10, .delay_m=6, .delay_e=10},  // 2: slow straight
+	{.speed=MAX_SPEED_UPS * 0.8f, .pattern=0x3FF, .delay_a=10, .delay_m=0, .delay_e=10},  // 3: fast rounded
+	{.speed=MAX_SPEED_UPS * 0.4f, .pattern=0x3FF, .delay_a=10, .delay_m=0, .delay_e=10},  // 4: slow rounded
+    {.speed=50000.0f,             .pattern=0x3FF, .delay_a=10, .delay_m=0, .delay_e=10},  // 5: very slow setting
 };
 
 
@@ -40,8 +35,8 @@ Data32 LaserQueue::pop () {
     return getc();
 }
 Point LaserQueue::pop_Point () {
-    FLOAT x = pop().f;
-    FLOAT y = pop().f;
+    float x = pop().f;
+    float y = pop().f;
     return Point(x,y);
 }
 Rect LaserQueue::pop_Rect () {
@@ -90,7 +85,9 @@ void XY2Galvo::init() {
 	sm_config_set_sideset_pins(&c, PIN_XY2_SYNC_XY);
 	pio_sm_init(PIO_XY2, sm_laser, offset + xy2_laser_offset_start, &c);
 
-	gpio_set_outover(PIN_XY2_LASER, GPIO_OVERRIDE_INVERT);
+    // --- LASER POLARITY CONTROL ---
+	// To invert the laser signal (active-low), uncomment the following line:
+	// gpio_set_outover(PIN_XY2_LASER, GPIO_OVERRIDE_INVERT);
 }
 
 void XY2Galvo::start() {
@@ -114,48 +111,29 @@ __attribute__((noreturn)) void XY2Galvo::worker() {
 
 	pio_enable_sm_mask_in_sync(PIO_XY2, (1u<<sm_clock)|(1u<<sm_x)|(1u<<sm_y)|(1u<<sm_laser));
 
-    memset(laser_delay_queue, 0, sizeof(laser_delay_queue));
-    pio_send_data(0.0f, 0.0f, 0x000);
+    memset(&laser_queue, 0, sizeof(laser_queue));
+    pio_send_data(0.0f, 0.0f, 0x000); // Start at center with laser off
 
     for(;;) {
         DrawCmd cmd = laser_queue.pop().cmd;
         switch(cmd) {
             case CMD_MOVETO: {
                 Point p1 = laser_queue.pop_Point();
-                move_to(p1);
-                break;
-            }
-            case CMD_DRAWTO: {
-                const LaserSet* set = laser_queue.pop().set;
-                Point p1 = laser_queue.pop_Point();
-                uint laser_on_delay=0;
-                draw_to(p1,set->speed,set->pattern,laser_on_delay,set->delay_m);
+                execute_lineto(p1, laser_set[0].pattern); // JUMP uses pattern from laser_set 0
                 break;
             }
             case CMD_LINETO: {
-			    const LaserSet* set = laser_queue.pop().set;
+			    uint pattern = laser_queue.pop().u;
 			    Point p1 = laser_queue.pop_Point();
-			    line_to(p1,*set);
+			    execute_lineto(p1, pattern);
                 break;
             }
-            case CMD_LINE: {
-                const LaserSet* set = laser_queue.pop().set;
-                Point p1 = laser_queue.pop_Point();
-                Point p2 = laser_queue.pop_Point();
-                draw_line(p1,p2,*set);
-                break;
-            }
-            case CMD_RECT: {
-                const LaserSet* set = laser_queue.pop().set;
-                Rect rect = laser_queue.pop_Rect();
-                draw_rect(rect,*set);
-                break;
-            }
-            case CMD_POLYLINE: {
-                const LaserSet* set = laser_queue.pop().set;
-                uint flags = laser_queue.pop().u;
-                uint count = laser_queue.pop().u;
-                draw_polyline(count, [](){return laser_queue.pop_Point();}, *set, flags);
+            case CMD_DWELL: {
+                uint32_t steps = laser_queue.pop().u;
+                uint32_t pattern = laser_queue.pop().u;
+                for (uint32_t i = 0; i < steps; ++i) {
+                    send_data_blocking(pos0, pattern); // Resend last position to keep laser state
+                }
                 break;
             }
             case CMD_RESET_TRANSFORMATION: {
@@ -178,14 +156,17 @@ __attribute__((noreturn)) void XY2Galvo::worker() {
             }
             case CMD_END:
             default:
-                // Do nothing, loop
                 break;
         }
     }
 }
 
 
-// --- Core Drawing Logic (runs on Core 1) ---
+// --- Core 1 (Worker) Logic ---
+
+static uint laser_delay_queue[16];
+static uint laser_delay_size = 14;
+static uint laser_delay_index = 0;
 
 uint XY2Galvo::delayed_laser_value (uint value) {
 	if (laser_delay_index >= laser_delay_size) laser_delay_index = 0;
@@ -197,7 +178,7 @@ void XY2Galvo::pio_wait_free() {
     while (pio_sm_is_tx_fifo_full(PIO_XY2, sm_x)) { tight_loop_contents(); }
 }
 
-void XY2Galvo::pio_send_data (FLOAT x, FLOAT y, uint32_t laser) {
+void XY2Galvo::pio_send_data (float x, float y, uint32_t laser) {
     pos0.x = x;
     pos0.y = y;
     laser = delayed_laser_value(laser);
@@ -217,119 +198,164 @@ void XY2Galvo::send_data_blocking (const Point& p, uint32_t laser) {
     pio_send_data(p.x, p.y, laser);
 }
 
-
-void __not_in_flash_func(XY2Galvo::draw_to) (Point dest, FLOAT speed, uint laser_on_pattern, uint& laser_on_delay, uint end_delay) {
+void __not_in_flash_func(XY2Galvo::execute_lineto) (Point dest, uint pattern) {
 	transformation1.transform(dest);
-	Dist dist = dest - pos0;
-	FLOAT line_length = dist.length();
-	if (line_length == 0) return;
-    Dist step = dist * (speed / line_length);
-
-	uint laser_off_pattern = laser_set[0].pattern;
-
-    while(line_length > speed) {
-        line_length -= speed;
-        uint current_pattern = (laser_on_delay > 0) ? laser_off_pattern : laser_on_pattern;
-        send_data_blocking(pos0 + step, current_pattern);
-        if (laser_on_delay > 0) laser_on_delay--;
+	Dist dist_vec = dest - pos0;
+	float line_length = dist_vec.length();
+    if (line_length <= 0.001f) {
+        // For a zero-length move, just send the final position once.
+        send_data_blocking(dest, pattern);
+        return;
     }
 
+    // This function now *always* runs at max hardware speed.
+    // It breaks the line into the smallest possible steps the hardware can manage.
+    const float step_speed = SCANNER_MAX_STEP_SPEED;
+	Dist step = dist_vec * (step_speed / line_length);
+
+    while(line_length > step_speed) {
+        line_length -= step_speed;
+        pos0 = pos0 + step;
+        send_data_blocking(pos0, pattern);
+    }
+
+    // Final step to the exact destination
     if (pos0 != dest) {
-        uint current_pattern = (laser_on_delay > 0) ? laser_off_pattern : laser_on_pattern;
-        send_data_blocking(dest, current_pattern);
-        if (laser_on_delay > 0) laser_on_delay--;
-    }
-
-    for (uint i = 0; i < end_delay; i++) {
-        uint current_pattern = (laser_on_delay > 0) ? laser_off_pattern : laser_on_pattern;
-        send_data_blocking(dest, current_pattern);
-        if (laser_on_delay > 0) laser_on_delay--;
+        send_data_blocking(dest, pattern);
     }
 }
 
 
-void XY2Galvo::move_to (const Point& dest) { line_to(dest, laser_set[0]); }
+// --- Core 0 (Public API) Logic ---
 
-void XY2Galvo::line_to (const Point& dest, const LaserSet& set) {
-	uint laser_on_delay = set.delay_a;
-	draw_to(dest, set.speed, set.pattern, laser_on_delay, set.delay_e);
+// Internal helper to queue a dwell command
+static void dwell(uint32_t microseconds, uint pattern) {
+    if (microseconds == 0) return;
+    uint32_t steps = microseconds / 10;
+    if (steps == 0) return;
+    Data32 s;
+    s.u = steps;
+    laser_queue.push(CMD_DWELL);
+    laser_queue.push(s);
+    laser_queue.push(pattern);
 }
 
-void XY2Galvo::draw_line (const Point& start, const Point& dest, const LaserSet& set) {
-	move_to(start);
-	line_to(dest, set);
-}
-
-void XY2Galvo::draw_rect (const Rect& bbox, const LaserSet& set) {
-	move_to(bbox.top_left());
-	line_to(bbox.top_right(), set);
-	line_to(bbox.bottom_right(), set);
-	line_to(bbox.bottom_left(), set);
-	line_to(bbox.top_left(), set);
-}
-
-void __not_in_flash_func(XY2Galvo::draw_polyline) (uint count, std::function<Point()> next_point, const LaserSet& set, uint flags) {
-	bool closed   = flags == POLYLINE_CLOSED;
-	bool no_start = flags & POLYLINE_NO_START;
-	bool no_end   = flags & POLYLINE_NO_END;
-
-	Point start;
-	if (!no_start && count > 0) {
-        count--;
-        start = next_point();
-        move_to(start);
+// Internal helper to plan a single line segment
+static void plan_line(const Point& start, const Point& end, const LaserSet& set) {
+    Dist dist_vec = end - start;
+    float total_dist = dist_vec.length();
+    
+    // If it's a zero-length line, just send the command.
+    if (total_dist < 0.001f) {
+        laser_queue.push(CMD_LINETO);
+        laser_queue.push(set.pattern);
+        laser_queue.push(end);
+        return;
     }
-	if (count == 0) return;
 
-	uint laser_on_delay = no_start ? 0 : set.delay_a;
-	uint delay = set.delay_m;
+    float target_speed_ups = min(set.speed, MAX_SPEED_UPS);
+    if (target_speed_ups < 1.0f) target_speed_ups = 1.0f;
 
-	while (count > 0) {
-        count --;
-		Point dest = next_point();
-		if (count==0 && !no_end) delay = set.delay_e;
-		draw_to(dest, set.speed, set.pattern, laser_on_delay, delay);
-	}
+    float total_duration_s = total_dist / target_speed_ups;
+    constexpr float TARGET_SEGMENT_DURATION_S = 1.0f / TARGET_UPDATE_RATE_HZ;
+    uint num_segments = max(1u, (uint)ceilf(total_duration_s / TARGET_SEGMENT_DURATION_S));
+    Dist segment_vec = dist_vec / num_segments;
+    float time_per_segment_s = total_duration_s / num_segments;
+    float time_for_segment_at_max_speed_s = segment_vec.length() / MAX_SPEED_UPS;
 
-	if (closed) draw_to(start, set.speed, set.pattern, laser_on_delay, set.delay_e);
+    uint32_t delay_per_segment_us = 0;
+    if (time_per_segment_s > time_for_segment_at_max_speed_s) {
+        delay_per_segment_us = (uint32_t)((time_per_segment_s - time_for_segment_at_max_speed_s) * 1000000.0f);
+    }
+    
+    // --- Queue up commands ---
+    Point current_pos = start;
+    for (uint i = 0; i < num_segments; ++i) {
+        current_pos = (i == num_segments - 1) ? end : current_pos + segment_vec;
+        
+        laser_queue.push(CMD_LINETO);
+        laser_queue.push(set.pattern);
+        laser_queue.push(current_pos);
+
+        if (delay_per_segment_us > 0 && i < num_segments - 1) {
+            dwell(delay_per_segment_us, set.pattern);
+        }
+    }
 }
-
-
-// --- Public API methods (run on Core 0) ---
 
 void XY2Galvo::moveTo (const Point& p) {
 	laser_queue.push(CMD_MOVETO);
 	laser_queue.push(p);
 }
-void XY2Galvo::drawTo (const Point& p, const LaserSet& set) {
-	laser_queue.push(CMD_DRAWTO);
-	laser_queue.push(&set);
-	laser_queue.push(p);
+
+void XY2Galvo::drawLine (const Point& start, const Point& end, const LaserSet& set) {
+	moveTo(start);
+    dwell(set.delay_a * 10, laser_set[0].pattern); // Start delay is laser-off
+    plan_line(start, end, set);
+    dwell(set.delay_e * 10, set.pattern); // End delay is laser-on
 }
-void XY2Galvo::drawLine (const Point& p1, const Point& p2, const LaserSet& set) {
-	laser_queue.push(CMD_LINE);
-	laser_queue.push(&set);
-	laser_queue.push(p1);
-	laser_queue.push(p2);
-}
+
+
 void XY2Galvo::drawRect (const Rect& rect, const LaserSet& set) {
-	laser_queue.push(CMD_RECT);
-	laser_queue.push(&set);
-	laser_queue.push(rect);
+	Point p1 = rect.top_left();
+    Point p2 = rect.top_right();
+    Point p3 = rect.bottom_right();
+    Point p4 = rect.bottom_left();
+
+    moveTo(p1); 
+    dwell(set.delay_a * 10, laser_set[0].pattern);
+
+    plan_line(p1, p2, set);
+    dwell(set.delay_m * 10, set.pattern);
+    plan_line(p2, p3, set);
+    dwell(set.delay_m * 10, set.pattern);
+    plan_line(p3, p4, set);
+    dwell(set.delay_m * 10, set.pattern);
+    plan_line(p4, p1, set);
+
+    dwell(set.delay_e * 10, set.pattern);
 }
+
 void XY2Galvo::drawPolyLine (uint count, const Point points[], const LaserSet& set, PolyLineOptions flags) {
-	laser_queue.push(CMD_POLYLINE);
-	laser_queue.push(&set);
-	laser_queue.push(uint(flags));
-	laser_queue.push(count);
-	for (uint i=0; i<count; i++) laser_queue.push(points[i]);
+	if (count < 1) return;
+
+    if (count == 1) {
+        moveTo(points[0]);
+        dwell(set.delay_a * 10, laser_set[0].pattern);
+        plan_line(points[0], points[0], set); // Dwell at the point
+        dwell(set.delay_e * 10, set.pattern);
+        return;
+    }
+
+    moveTo(points[0]);
+    dwell(set.delay_a * 10, laser_set[0].pattern);
+
+    for (uint i = 0; i < count - 1; i++) {
+        plan_line(points[i], points[i+1], set);
+        
+        bool is_last_segment = (i == count - 2);
+        if (!is_last_segment || flags == POLYLINE_CLOSED) {
+            dwell(set.delay_m * 10, set.pattern);
+        }
+    }
+
+    if (flags == POLYLINE_CLOSED) {
+        plan_line(points[count-1], points[0], set);
+    }
+
+    dwell(set.delay_e * 10, set.pattern);
 }
+
 void XY2Galvo::drawPolygon (uint count, const Point points[], const LaserSet& set) {
 	drawPolyLine(count, points, set, POLYLINE_CLOSED);
 }
 
+void XY2Galvo::wait(uint32_t microseconds) {
+    dwell(microseconds, laser_set[0].pattern); // Public wait is always laser-off
+}
+
 void XY2Galvo::update_transformation() {
-    static_assert(sizeof(Data32) == sizeof(FLOAT), "Size mismatch");
+    static_assert(sizeof(Data32) == sizeof(float), "Size mismatch");
     laser_queue.push(transformation0.is_projected ? CMD_SET_TRANSFORMATION_3D : CMD_SET_TRANSFORMATION);
     uint n = transformation0.is_projected ? 9 : 6;
     while (laser_queue.free() < n) { tight_loop_contents(); }
@@ -355,19 +381,19 @@ void XY2Galvo::popTransformation() {
     transformation0 = transformation_stack[transformation_stack_index++ & 7];
     update_transformation();
 }
-void XY2Galvo::rotate(FLOAT rad) {
+void XY2Galvo::rotate(float rad) {
     transformation0.rotate(rad);
     update_transformation();
 }
-void XY2Galvo::scale(FLOAT s) {
+void XY2Galvo::scale(float s) {
     transformation0.scale(s);
     update_transformation();
 }
-void XY2Galvo::scale(FLOAT sx, FLOAT sy) {
+void XY2Galvo::scale(float sx, float sy) {
     transformation0.scale(sx, sy);
     update_transformation();
 }
-void XY2Galvo::addOffset(FLOAT dx, FLOAT dy) {
+void XY2Galvo::addOffset(float dx, float dy) {
     transformation0.addOffset(dx, dy);
     update_transformation();
 }
