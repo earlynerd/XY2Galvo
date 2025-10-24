@@ -38,7 +38,7 @@ constexpr uint PIN_XY2_CLOCK      = 8;  // CLOCK+ goes here
 constexpr uint PIN_XY2_CLOCK_NEG  = PIN_XY2_CLOCK + 1; // CLOCK- goes here (9)
 
 // Differential Sync Signal (part of the clock/sync group)
-constexpr uint PIN_XY2_SYNC       = PIN_XY2_CLOCK + 2; // SYNC+ goes here (10)
+constexpr uint PIN_XY2_SYNC       = 10; // SYNC+ goes here (10)
 constexpr uint PIN_XY2_SYNC_NEG   = PIN_XY2_SYNC + 1;  // SYNC- goes here (11)
 
 // Differential Y-Axis Data
@@ -71,6 +71,17 @@ struct LaserSet
 	uint delay_e;	// steps to wait with laser ON after end of line
 };
 
+// Pre-defined laser settings
+static LaserSet laser_set[] =
+{
+	{.speed=SCANNER_MAX_SPEED, .pattern=0x003, .delay_a=0, .delay_m=0, .delay_e=20},	// 0: jump
+	{.speed=SCANNER_MAX_SPEED, .pattern=0x3FF, .delay_a=0, .delay_m=6, .delay_e=0},	// 1: fast straight
+	{.speed=SCANNER_MAX_SPEED*2/3, .pattern=0x3FF, .delay_a=0, .delay_m=6, .delay_e=0},	// 2: slow straight
+	{.speed=SCANNER_MAX_SPEED, .pattern=0x3FF, .delay_a=0, .delay_m=0, .delay_e=0},	// 3: fast rounded
+	{.speed=SCANNER_MAX_SPEED*2/3, .pattern=0x3FF, .delay_a=0, .delay_m=0, .delay_e=0},	// 4: slow rounded
+};
+
+
 enum DrawCmd
 {
 	CMD_END = 0,
@@ -80,6 +91,7 @@ enum DrawCmd
 	CMD_LINE,
 	CMD_RECT,
 	CMD_POLYLINE,
+	CMD_PRINT_TEXT,
 	CMD_RESET_TRANSFORMATION,
 	CMD_SET_TRANSFORMATION,
     CMD_SET_TRANSFORMATION_3D,
@@ -138,9 +150,22 @@ public:
 	void drawRect (const Rect& rect, const LaserSet&);
 	void drawPolyLine (uint count, const Point points[], const LaserSet&, PolyLineOptions=POLYLINE_DEFAULT);
 	void drawPolygon (uint count, const Point points[], const LaserSet&);
-
+	//void drawEllipse (const Rect& bbox, FLOAT angle0, uint steps, const LaserSet&);
+	void printText (Point start, FLOAT scale_x, FLOAT scale_y, cstr text, bool centered = false, const LaserSet& = laser_set[2], const LaserSet& = laser_set[4]);
     // Transformation commands
 	void resetTransformation();
+	void setRotation (FLOAT rad);
+	void setRotationAndScale (FLOAT rad, FLOAT fx, FLOAT fy);
+	void setScale (FLOAT f);
+	void setScale (FLOAT fx, FLOAT fy);
+	void setOffset(FLOAT dx, FLOAT dy);
+	void setOffset(const Point& p) { setOffset(p.x,p.y); }
+	void setOffset(const Dist& d)  { setOffset(d.dx,d.dy); }
+	void setShear (FLOAT sx, FLOAT sy);
+	void setProjection (FLOAT px, FLOAT py, FLOAT pz=1);
+	void setTransformation (FLOAT fx, FLOAT fy, FLOAT sx, FLOAT sy, FLOAT dx, FLOAT dy);
+	void setTransformation (FLOAT fx, FLOAT fy, FLOAT sx, FLOAT sy, FLOAT dx, FLOAT dy, FLOAT px, FLOAT py, FLOAT pz=1);
+
 	void setTransformation (const Transformation& transformation);
     void pushTransformation();
     void popTransformation();
@@ -166,6 +191,9 @@ private:
 	static void draw_line (const Point& start, const Point& dest, const LaserSet&);
 	static void draw_rect (const Rect& rect, const LaserSet&);
 	static void draw_polyline (uint count, std::function<Point()> next_point, const LaserSet&, uint flags);
+
+	
+	static void print_char (Point& textpos, FLOAT scale_x, FLOAT scale_y, const LaserSet& straight, const LaserSet& rounded, uint8_t& rmask, char c);
 
     // PIO state machines
 	static constexpr uint sm_laser  = 0;
