@@ -23,7 +23,9 @@ extern LaserSet laser_set[];
 void setup() {
   // Start serial communication for debugging if needed
   Serial.begin(115200);
-  
+  //add LED indicator
+  pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, HIGH);
   // Initialize the PIO state machines and GPIO pins
   galvo.init();
   
@@ -44,6 +46,7 @@ void setup() {
   // The command is added to a queue and will be processed on core1.
   // We use laser_set[1] for fast, straight lines.
   galvo.drawRect(square, laser_set[1]);
+  digitalWrite(LED_BUILTIN, LOW);
 }
 
 void loop() {
@@ -52,6 +55,6 @@ void loop() {
   // like checking for user input, updating a display, or sending more
   // drawing commands to the queue.
   
-  // For this simple example, we'll just let it run.
+  // For this simple example, we'll just let it run, after pushing onto the queue once
   delay(1000);
 }

@@ -32,7 +32,8 @@ Point star[STAR_POINTS] = {
 
 void setup() {
   Serial.begin(115200);
-  
+  pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, HIGH);
   // Initialize and start the galvo worker core
   galvo.init();
   galvo.start();
@@ -56,6 +57,7 @@ void setup() {
   galvo.drawPolygon(STAR_POINTS, star, laser_set[1]);
   //print some text using vector font
   galvo.printText(Point(0,0),1000, 1000, "TEST", true, laser_set[0], laser_set[1]);
+  digitalWrite(LED_BUILTIN, LOW);
 }
 
 void loop() {

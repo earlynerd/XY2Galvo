@@ -27,7 +27,8 @@ float scale_direction = 0.02;
 
 void setup() {
   Serial.begin(115200);
-  
+  pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, LOW);
   // Initialize and start the galvo worker core
   galvo.init();
   galvo.start();
@@ -47,7 +48,7 @@ void loop() {
   if (scale_factor > 1.5 || scale_factor < 0.5) {
     scale_direction *= -1; // Reverse scaling direction
   }
-
+  digitalWrite(LED_BUILTIN, HIGH);
   // --- Send drawing commands with transformations ---
 
   // It's crucial to reset the transformation at the start of each frame.
@@ -62,7 +63,7 @@ void loop() {
   // Now, draw the object. The transformations we just set will be
   // applied to this drawing command on the worker core.
   galvo.drawRect(square, laser_set[1]);
-
+  digitalWrite(LED_BUILTIN, LOW);
   // Control the animation speed
   delay(20); 
 }

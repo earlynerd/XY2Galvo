@@ -17,7 +17,7 @@ LaserSet lowspeed = {.speed=50, .pattern=0x3ff, .delay_a=0, .delay_m=0, .delay_e
 
 void setup() {
   Serial.begin(115200);
-  
+  pinMode(LED_BUILTIN, OUTPUT);
   // Initialize and start the galvo worker core
   galvo.init();
   galvo.start();
@@ -26,11 +26,12 @@ void setup() {
 }
 
 void loop() {
-  
+  digitalWrite(LED_BUILTIN, HIGH);
   Transformation t{500,500,0,0,0,0};
   galvo.resetTransformation();
   galvo.setTransformation(t);
   galvo.setOffset(-50, 0);
   galvo.printText(Point(0,0), 1, 1, "Hello World!", false, lowspeed, lowspeed);
+  digitalWrite(LED_BUILTIN, LOW);
   delay(50);
 }
