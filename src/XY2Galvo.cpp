@@ -368,8 +368,8 @@ void XY2Galvo::draw_rect(const Rect &bbox, const LaserSet &set)
     line_to(bbox.top_left(), set);
 }
 
-/*
-void XY2Galvo::drawEllipse(const Rect &bbox, float angle, uint steps, const LaserSet &set)
+
+void XY2Galvo::drawEllipse(const Rect &bbox, float angle, uint32_t steps, const LaserSet &set)
 {
     const Point center = bbox.center();
     float fx = bbox.width() / 2;
@@ -383,7 +383,7 @@ void XY2Galvo::drawEllipse(const Rect &bbox, float angle, uint steps, const Lase
 		angle += step;
 		return center + Dist(fx*cos(a),fy*sin(a)); }, set, POLYLINE_CLOSED);
 }
-*/
+
 void XY2Galvo::setRotation(float rad) // and reset scale and shear
 {
     transformation0.setRotation(rad);
@@ -493,6 +493,16 @@ void XY2Galvo::drawPolyLine(uint count, const Point points[], const LaserSet &se
     for (uint i = 0; i < count; i++)
         laser_queue.push(points[i]);
 }
+void XY2Galvo::drawPolyLine (uint count, std::function<Point()> nextPoint, const LaserSet& set,
+						PolyLineOptions flags)
+{
+	laser_queue.push(CMD_POLYLINE);
+	laser_queue.push(&set);
+	laser_queue.push(flags);
+	laser_queue.push(count);
+	for (uint i=0; i<count; i++) laser_queue.push(nextPoint());
+}
+
 void XY2Galvo::drawPolygon(uint count, const Point points[], const LaserSet &set)
 {
     drawPolyLine(count, points, set, POLYLINE_CLOSED);
@@ -608,7 +618,7 @@ void XY2Galvo::printText(Point start, float scale_x, float scale_y, cstr text, b
     } while (c);
 }
 
-void XY2Galvo::print_char (Point& p0, FLOAT scale_x, FLOAT scale_y, const LaserSet& straight, const LaserSet& rounded, uint8_t& rmask, char c)
+void XY2Galvo::print_char (Point& p0, float scale_x, float scale_y, const LaserSet& straight, const LaserSet& rounded, uint8_t& rmask, char c)
 {
 	int8_t* p = vt_font_data + vt_font_col1[(uint8_t)c];
 

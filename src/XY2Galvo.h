@@ -16,7 +16,7 @@
 #include "XY2-100.pio.h"
 
 // --- Merged from standard_types.h & cdefs.h ---
-using FLOAT = float;
+//using float = float;
 typedef const char* cstr;
 //template<typename T> static inline T min(T a,T b) { return a<=b?a:b; }
 //template<typename T> static inline T max(T a,T b) { return a>=b?a:b; }
@@ -64,7 +64,7 @@ constexpr float SCANNER_MAX_SPEED = SCANNER_MAX_SWIVELS * SCANNER_WIDTH / XY2_DA
 
 struct LaserSet
 {
-	FLOAT speed;
+	float speed;
 	uint pattern;
 	uint delay_a;	// steps to wait after start before laser ON
 	uint delay_m;	// steps to wait at middle points in polygon lines
@@ -101,11 +101,11 @@ union Data32
 {
 	DrawCmd cmd;
 	const LaserSet* set;
-	FLOAT f;
+	float f;
 	uint  u;
 	int   i;
 	Data32(DrawCmd c) : cmd(c){}
-	Data32(FLOAT f)   : f(f)  {}
+	Data32(float f)   : f(f)  {}
 	Data32(uint  u)   : u(u)  {}
 	Data32(int   i)   : i(i)  {}
 	Data32(const LaserSet* s) : set(s) {}
@@ -149,30 +149,31 @@ public:
 	void drawLine (const Point& start, const Point& dest, const LaserSet&);
 	void drawRect (const Rect& rect, const LaserSet&);
 	void drawPolyLine (uint count, const Point points[], const LaserSet&, PolyLineOptions=POLYLINE_DEFAULT);
+	void drawPolyLine (uint count, std::function<Point()> nextPoint, const LaserSet&, PolyLineOptions=POLYLINE_DEFAULT);
 	void drawPolygon (uint count, const Point points[], const LaserSet&);
-	//void drawEllipse (const Rect& bbox, FLOAT angle0, uint steps, const LaserSet&);
-	void printText (Point start, FLOAT scale_x, FLOAT scale_y, cstr text, bool centered = false, const LaserSet& = laser_set[2], const LaserSet& = laser_set[4]);
+	void drawEllipse (const Rect& bbox, float angle0, uint32_t steps, const LaserSet&);
+	void printText (Point start, float scale_x, float scale_y, cstr text, bool centered = false, const LaserSet& = laser_set[2], const LaserSet& = laser_set[4]);
     // Transformation commands
 	void resetTransformation();
-	void setRotation (FLOAT rad);
-	void setRotationAndScale (FLOAT rad, FLOAT fx, FLOAT fy);
-	void setScale (FLOAT f);
-	void setScale (FLOAT fx, FLOAT fy);
-	void setOffset(FLOAT dx, FLOAT dy);
+	void setRotation (float rad);
+	void setRotationAndScale (float rad, float fx, float fy);
+	void setScale (float f);
+	void setScale (float fx, float fy);
+	void setOffset(float dx, float dy);
 	void setOffset(const Point& p) { setOffset(p.x,p.y); }
 	void setOffset(const Dist& d)  { setOffset(d.dx,d.dy); }
-	void setShear (FLOAT sx, FLOAT sy);
-	void setProjection (FLOAT px, FLOAT py, FLOAT pz=1);
-	void setTransformation (FLOAT fx, FLOAT fy, FLOAT sx, FLOAT sy, FLOAT dx, FLOAT dy);
-	void setTransformation (FLOAT fx, FLOAT fy, FLOAT sx, FLOAT sy, FLOAT dx, FLOAT dy, FLOAT px, FLOAT py, FLOAT pz=1);
+	void setShear (float sx, float sy);
+	void setProjection (float px, float py, float pz=1);
+	void setTransformation (float fx, float fy, float sx, float sy, float dx, float dy);
+	void setTransformation (float fx, float fy, float sx, float sy, float dx, float dy, float px, float py, float pz=1);
 
 	void setTransformation (const Transformation& transformation);
     void pushTransformation();
     void popTransformation();
-    void rotate(FLOAT rad);
-    void scale(FLOAT s);
-    void scale(FLOAT sx, FLOAT sy);
-    void addOffset(FLOAT dx, FLOAT dy);
+    void rotate(float rad);
+    void scale(float s);
+    void scale(float sx, float sy);
+    void addOffset(float dx, float dy);
 
 
 private:
@@ -182,10 +183,10 @@ private:
 	static uint delayed_laser_value (uint value);
 
 	static void pio_wait_free();
-	static void pio_send_data (FLOAT x, FLOAT y, uint32_t laser);
+	static void pio_send_data (float x, float y, uint32_t laser);
 	static void send_data_blocking (const Point& p, uint32_t laser);
 
-	static void draw_to (Point dest, FLOAT speed, uint laser_on_pattern, uint& laser_on_delay, uint end_delay);
+	static void draw_to (Point dest, float speed, uint laser_on_pattern, uint& laser_on_delay, uint end_delay);
 	static void move_to (const Point& dest);
 	static void line_to (const Point& dest, const LaserSet&);
 	static void draw_line (const Point& start, const Point& dest, const LaserSet&);
@@ -193,7 +194,7 @@ private:
 	static void draw_polyline (uint count, std::function<Point()> next_point, const LaserSet&, uint flags);
 
 	
-	static void print_char (Point& textpos, FLOAT scale_x, FLOAT scale_y, const LaserSet& straight, const LaserSet& rounded, uint8_t& rmask, char c);
+	static void print_char (Point& textpos, float scale_x, float scale_y, const LaserSet& straight, const LaserSet& rounded, uint8_t& rmask, char c);
 
     // PIO state machines
 	static constexpr uint sm_laser  = 0;

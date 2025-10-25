@@ -40,6 +40,7 @@ void setup() {
 
   Serial.println("XY2Galvo library started. Drawing primitives demo.");
 
+  
   // Draw a bounding box for our shapes
   Rect bounds(25000, -25000, -25000, 25000);
   galvo.drawRect(bounds, laser_set[2]); // Use a slower speed for the box
@@ -47,11 +48,14 @@ void setup() {
   // Draw two individual lines crossing the box
   galvo.drawLine({-25000, -25000}, {25000, 25000}, laser_set[1]);
   galvo.drawLine({-25000, 25000}, {25000, -25000}, laser_set[1]);
-
+  //draw a circle inscribed within the box
+  galvo.drawEllipse(bounds, 0, 100, laser_set[1]);
   // Draw the star shape using the drawPolygon command.
   // drawPolygon is a convenient wrapper around drawPolyLine that
   // automatically closes the shape.
   galvo.drawPolygon(STAR_POINTS, star, laser_set[1]);
+  //print some text using vector font
+  galvo.printText(Point(0,0),1000, 1000, "TEST", true, laser_set[0], laser_set[1]);
 }
 
 void loop() {
