@@ -1,4 +1,6 @@
 #include "XY2Galvo.h"
+#include <cctype>   // For isalpha, isspace
+#include <stdlib.h> // For strtof
 #include <cstring>
 #include "vt_vector_font.h"
 
@@ -19,7 +21,6 @@ static uint laser_delay_size = 14; // From LASER_QUEUE_DELAY
 static uint laser_delay_index = 0;
 
 #define NELEM(feld) (sizeof(feld) / sizeof((feld)[0])) // UNSIGNED !!
-
 
 static uint32_t vt_font_col1[256]; // index in vt_font_data[]
 static int8_t vt_font_width[256];  // character print width (including +1 for line width but no spacing)
@@ -45,7 +46,6 @@ static void vt_init_vector_font()
         assert(vt_font_data[i - 1] == E);
     }
 }
-
 
 // --- LaserQueue Implementation ---
 void LaserQueue::push(Data32 data)
@@ -368,7 +368,6 @@ void XY2Galvo::draw_rect(const Rect &bbox, const LaserSet &set)
     line_to(bbox.top_left(), set);
 }
 
-
 void XY2Galvo::drawEllipse(const Rect &bbox, float angle, uint32_t steps, const LaserSet &set)
 {
     const Point center = bbox.center();
@@ -493,14 +492,15 @@ void XY2Galvo::drawPolyLine(uint count, const Point points[], const LaserSet &se
     for (uint i = 0; i < count; i++)
         laser_queue.push(points[i]);
 }
-void XY2Galvo::drawPolyLine (uint count, std::function<Point()> nextPoint, const LaserSet& set,
-						PolyLineOptions flags)
+void XY2Galvo::drawPolyLine(uint count, std::function<Point()> nextPoint, const LaserSet &set,
+                            PolyLineOptions flags)
 {
-	laser_queue.push(CMD_POLYLINE);
-	laser_queue.push(&set);
-	laser_queue.push(flags);
-	laser_queue.push(count);
-	for (uint i=0; i<count; i++) laser_queue.push(nextPoint());
+    laser_queue.push(CMD_POLYLINE);
+    laser_queue.push(&set);
+    laser_queue.push(flags);
+    laser_queue.push(count);
+    for (uint i = 0; i < count; i++)
+        laser_queue.push(nextPoint());
 }
 
 void XY2Galvo::drawPolygon(uint count, const Point points[], const LaserSet &set)
@@ -576,8 +576,6 @@ void XY2Galvo::addOffset(float dx, float dy)
     update_transformation();
 }
 
-
-
 float printWidth(cstr s)
 {
     // calculate print width for string
@@ -618,33 +616,385 @@ void XY2Galvo::printText(Point start, float scale_x, float scale_y, cstr text, b
     } while (c);
 }
 
-void XY2Galvo::print_char (Point& p0, float scale_x, float scale_y, const LaserSet& straight, const LaserSet& rounded, uint8_t& rmask, char c)
+void XY2Galvo::print_char(Point &p0, float scale_x, float scale_y, const LaserSet &straight, const LaserSet &rounded, uint8_t &rmask, char c)
 {
-	int8_t* p = vt_font_data + vt_font_col1[(uint8_t)c];
+    int8_t *p = vt_font_data + vt_font_col1[(uint8_t)c];
 
-	uint lmask = uint8_t(*p++);
-	if (rmask & lmask) p0.x += scale_x;		// apply kerning
-	rmask = uint8_t(*p++);					// for next kerning
+    uint lmask = uint8_t(*p++);
+    if (rmask & lmask)
+        p0.x += scale_x;   // apply kerning
+    rmask = uint8_t(*p++); // for next kerning
 
-	while (*p != E)
-	{
-		int line_type = *p++;
+    while (*p != E)
+    {
+        int line_type = *p++;
 
-		const LaserSet& set = line_type == L ? straight : rounded;
+        const LaserSet &set = line_type == L ? straight : rounded;
 
-		Point pt;
-		pt.x = p0.x + *p++ * scale_x;
-		pt.y = p0.y + *p++ * scale_y;
-		move_to(pt);
+        Point pt;
+        pt.x = p0.x + *p++ * scale_x;
+        pt.y = p0.y + *p++ * scale_y;
+        move_to(pt);
 
-		uint delay_a = set.delay_a;
-		while (*p < E)
-		{
-			pt.x = p0.x + *p++ * scale_x;
-			pt.y = p0.y + *p++ * scale_y;
-			draw_to(pt, set.speed, set.pattern, delay_a, *p<E ? set.delay_m : set.delay_e);
-		}
-	}
+        uint delay_a = set.delay_a;
+        while (*p < E)
+        {
+            pt.x = p0.x + *p++ * scale_x;
+            pt.y = p0.y + *p++ * scale_y;
+            draw_to(pt, set.speed, set.pattern, delay_a, *p < E ? set.delay_m : set.delay_e);
+        }
+    }
 
-	p0.x += vt_font_width[(uint8_t)c] * scale_x;	// update print position
+    p0.x += vt_font_width[(uint8_t)c] * scale_x; // update print position
+}
+
+// --- NEW SVG Path Implementation (Core 0) ---
+
+/**
+ * @brief Helper to parse the next float from a string, advancing the pointer.
+ * Skips leading whitespace and commas.
+ */
+float XY2Galvo::_parseNextFloat(char **s)
+{
+    // Skip whitespace, newlines, and commas
+    while (**s == ' ' || **s == '\t' || **s == '\n' || **s == '\r' || **s == ',')
+    {
+        (*s)++;
+    }
+    char *end;
+    float val = strtof(*s, &end);
+    *s = end;
+    return val;
+}
+
+/**
+ * @brief Helper to parse the next point (x, y) from a string.
+ */
+Point XY2Galvo::_parseNextPoint(char **s, Point current, bool is_relative)
+{
+    float x = _parseNextFloat(s);
+    float y = _parseNextFloat(s);
+    if (is_relative)
+    {
+        return current + Dist(x, y);
+    }
+    else
+    {
+        return Point(x, y);
+    }
+}
+
+/**
+ * @brief Calculates a single point on a quadratic Bézier curve.
+ */
+Point XY2Galvo::_pointOnQuadraticBezier(Point p0, Point p1, Point p2, float t)
+{
+    float omt = 1.0f - t;
+    float omt2 = omt * omt;
+    float t2 = t * t;
+
+    // Convert Points to Dists (vectors from origin) to perform vector math
+    Dist v0(p0.x, p0.y);
+    Dist v1(p1.x, p1.y);
+    Dist v2(p2.x, p2.y);
+
+    // Formula: (1-t)^2 * V0 + 2(1-t)t * V1 + t^2 * V2
+    // This is now valid (Dist + Dist)
+    Dist r = (v0 * omt2) + (v1 * (2.0f * omt * t)) + (v2 * t2);
+
+    // Convert the resulting vector back to a Point
+    return Point(r.dx, r.dy);
+}
+
+/**
+ * @brief Calculates a single point on a cubic Bézier curve.
+ */
+Point XY2Galvo::_pointOnCubicBezier(Point p0, Point p1, Point p2, Point p3, float t)
+{
+    float omt = 1.0f - t;
+    float omt2 = omt * omt;
+    float omt3 = omt2 * omt;
+    float t2 = t * t;
+    float t3 = t2 * t;
+
+    // Convert Points to Dists (vectors from origin)
+    Dist v0(p0.x, p0.y);
+    Dist v1(p1.x, p1.y);
+    Dist v2(p2.x, p2.y);
+    Dist v3(p3.x, p3.y);
+
+    // Formula: (1-t)^3 * V0 + 3(1-t)^2 * t * V1 + 3(1-t)t^2 * V2 + t^3 * V3
+    // This is now valid (Dist + Dist)
+    Dist r = (v0 * omt3) + (v1 * (3.0f * omt2 * t)) + (v2 * (3.0f * omt * t2)) + (v3 * t3);
+
+    // Convert the resulting vector back to a Point
+    return Point(r.dx, r.dy);
+}
+
+/**
+ * @brief Tessellates a quadratic Bézier curve and sends it to the queue.
+ */
+void XY2Galvo::_tessellateQuadraticBezier(Point p0, Point p1, Point p2, uint steps, const LaserSet &set)
+{
+    if (steps < 2)
+        steps = 2; // Need at least 2 segments
+    if (steps > 250)
+        steps = 250; // Avoid stack overflow on the Point array
+
+    Point points[steps];
+    for (uint i = 1; i <= steps; i++)
+    {
+        float t = (float)i / (float)steps;
+        points[i - 1] = _pointOnQuadraticBezier(p0, p1, p2, t);
+    }
+    // We are already at p0, so use POLYLINE_NO_START
+    drawPolyLine(steps, points, set, POLYLINE_NO_START);
+}
+
+/**
+ * @brief Tessellates a cubic Bézier curve and sends it to the queue.
+ */
+void XY2Galvo::_tessellateCubicBezier(Point p0, Point p1, Point p2, Point p3, uint steps, const LaserSet &set)
+{
+    if (steps < 2)
+        steps = 2;
+    if (steps > 250)
+        steps = 250; // Avoid stack overflow
+
+    Point points[steps];
+    for (uint i = 1; i <= steps; i++)
+    {
+        float t = (float)i / (float)steps;
+        points[i - 1] = _pointOnCubicBezier(p0, p1, p2, p3, t);
+    }
+    // We are already at p0, so use POLYLINE_NO_START
+    drawPolyLine(steps, points, set, POLYLINE_NO_START);
+}
+
+/**
+ * @brief Public-facing function to start the path parser.
+ */
+void XY2Galvo::drawPath(cstr path_data, const LaserSet &set, uint tessellation_steps)
+{
+    // We need a non-const pointer to pass to the parser helpers,
+    // as they advance the pointer as they read.
+    char *s = const_cast<char *>(path_data);
+    _drawPathParser(s, set, tessellation_steps);
+}
+
+/**
+ * @brief The main SVG path parser state machine. Runs on Core 0.
+ */
+void XY2Galvo::_drawPathParser(char *s, const LaserSet &set, uint steps)
+{
+    Point current_pos(0, 0);
+    Point path_start_pos(0, 0);
+    Point last_control_point(0, 0);
+    char command = ' ';
+
+    while (*s)
+    {
+        // Skip whitespace
+        while (isspace(*s))
+            s++;
+        if (!*s)
+            break; // End of string
+
+        // Get new command or repeat last one if a coordinate is next
+        if (isalpha(*s))
+        {
+            command = *s++;
+        }
+
+        // Process the command
+        switch (command)
+        {
+        case 'M': // MoveTo (Absolute)
+        {
+            current_pos = _parseNextPoint(&s, current_pos, false);
+            path_start_pos = current_pos;
+            moveTo(current_pos);
+        }
+        break;
+
+        case 'm': // MoveTo (Relative)
+        {
+            current_pos = _parseNextPoint(&s, current_pos, true);
+            path_start_pos = current_pos;
+            moveTo(current_pos);
+        }
+        break;
+
+        case 'L': // LineTo (Absolute)
+        {
+            current_pos = _parseNextPoint(&s, current_pos, false);
+            drawTo(current_pos, set);
+        }
+        break;
+
+        case 'l': // LineTo (Relative)
+        {
+            current_pos = _parseNextPoint(&s, current_pos, true);
+            drawTo(current_pos, set);
+        }
+        break;
+
+        case 'H': // Horizontal LineTo (Absolute)
+        {
+            current_pos.x = _parseNextFloat(&s);
+            drawTo(current_pos, set);
+        }
+        break;
+
+        case 'h': // Horizontal LineTo (Relative)
+        {
+            current_pos.x += _parseNextFloat(&s);
+            drawTo(current_pos, set);
+        }
+        break;
+
+        case 'V': // Vertical LineTo (Absolute)
+        {
+            current_pos.y = _parseNextFloat(&s);
+            drawTo(current_pos, set);
+        }
+        break;
+
+        case 'v': // Vertical LineTo (Relative)
+        {
+            current_pos.y += _parseNextFloat(&s);
+            drawTo(current_pos, set);
+        }
+        break;
+
+        case 'Z': // ClosePath
+        case 'z':
+        {
+            if (current_pos != path_start_pos)
+            {
+                drawTo(path_start_pos, set);
+            }
+            current_pos = path_start_pos;
+        }
+        break;
+
+        case 'C': // Cubic Bezier (Absolute)
+        {
+            Point p1 = _parseNextPoint(&s, current_pos, false);
+            Point p2 = _parseNextPoint(&s, current_pos, false);
+            Point p_end = _parseNextPoint(&s, current_pos, false);
+            _tessellateCubicBezier(current_pos, p1, p2, p_end, steps, set);
+            current_pos = p_end;
+            last_control_point = p2;
+            break;
+        }
+
+        case 'c': // Cubic Bezier (Relative)
+        {
+            Point p1 = _parseNextPoint(&s, current_pos, true);
+            Point p2 = _parseNextPoint(&s, current_pos, true);
+            Point p_end = _parseNextPoint(&s, current_pos, true);
+            _tessellateCubicBezier(current_pos, p1, p2, p_end, steps, set);
+            current_pos = p_end;
+            last_control_point = p2;
+            break;
+        }
+
+        case 'S': // Smooth Cubic Bezier (Absolute)
+        {
+            // p1 is reflection of last_control_point
+            Point p1 = current_pos + (current_pos - last_control_point);
+            Point p2 = _parseNextPoint(&s, current_pos, false);
+            Point p_end = _parseNextPoint(&s, current_pos, false);
+            _tessellateCubicBezier(current_pos, p1, p2, p_end, steps, set);
+            current_pos = p_end;
+            last_control_point = p2;
+            break;
+        }
+
+        case 's': // Smooth Cubic Bezier (Relative)
+        {
+            // p1 is reflection of last_control_point
+            Point p1 = current_pos + (current_pos - last_control_point);
+            Point p2 = _parseNextPoint(&s, current_pos, true);
+            Point p_end = _parseNextPoint(&s, current_pos, true);
+            _tessellateCubicBezier(current_pos, p1, p2, p_end, steps, set);
+            current_pos = p_end;
+            last_control_point = p2;
+            break;
+        }
+
+        case 'Q': // Quadratic Bezier (Absolute)
+        {
+            Point p1 = _parseNextPoint(&s, current_pos, false);
+            Point p_end = _parseNextPoint(&s, current_pos, false);
+            _tessellateQuadraticBezier(current_pos, p1, p_end, steps, set);
+            current_pos = p_end;
+            last_control_point = p1; // For T/t
+            break;
+        }
+
+        case 'q': // Quadratic Bezier (Relative)
+        {
+            Point p1 = _parseNextPoint(&s, current_pos, true);
+            Point p_end = _parseNextPoint(&s, current_pos, true);
+            _tessellateQuadraticBezier(current_pos, p1, p_end, steps, set);
+            current_pos = p_end;
+            last_control_point = p1; // For T/t
+            break;
+        }
+
+        case 'T': // Smooth Quadratic Bezier (Absolute)
+        {
+            // p1 is reflection of last_control_point
+            Point p1 = current_pos + (current_pos - last_control_point);
+            Point p_end = _parseNextPoint(&s, current_pos, false);
+            _tessellateQuadraticBezier(current_pos, p1, p_end, steps, set);
+            current_pos = p_end;
+            last_control_point = p1;
+            break;
+        }
+
+        case 't': // Smooth Quadratic Bezier (Relative)
+        {
+            // p1 is reflection of last_control_point
+            Point p1 = current_pos + (current_pos - last_control_point);
+            Point p_end = _parseNextPoint(&s, current_pos, true);
+            _tessellateQuadraticBezier(current_pos, p1, p_end, steps, set);
+            current_pos = p_end;
+            last_control_point = p1;
+            break;
+        }
+
+        case 'A': // Arc (Absolute)
+        case 'a': // Arc (Relative)
+        {
+            // TODO: Arc implementation is very complex and not included yet.
+            // For now, we'll just parse the 7 arguments to skip them.
+            _parseNextFloat(&s); // rx
+            _parseNextFloat(&s); // ry
+            _parseNextFloat(&s); // x-axis-rotation
+            _parseNextFloat(&s); // large-arc-flag
+            _parseNextFloat(&s); // sweep-flag
+            Point p_end = _parseNextPoint(&s, current_pos, (command == 'a'));
+            // As a fallback, just draw a line to the end point.
+            drawTo(p_end, set);
+            current_pos = p_end;
+        }
+        break;
+
+        // Default: command not recognized, stop parsing
+        default:
+            break;
+            return;
+        }
+
+        // After a command, check if the last_control_point needs to be reset
+        // (for S, s, T, t)
+        if (command != 'c' && command != 'C' && command != 's' && command != 'S' &&
+            command != 'q' && command != 'Q' && command != 't' && command != 'T')
+        {
+            last_control_point = current_pos;
+        }
+    }
 }

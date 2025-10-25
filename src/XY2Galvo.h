@@ -153,6 +153,15 @@ public:
 	void drawPolygon (uint count, const Point points[], const LaserSet&);
 	void drawEllipse (const Rect& bbox, float angle0, uint32_t steps, const LaserSet&);
 	void printText (Point start, float scale_x, float scale_y, cstr text, bool centered = false, const LaserSet& = laser_set[2], const LaserSet& = laser_set[4]);
+	
+    /**
+     * @brief Draws a vector path defined by an SVG path string.
+     * @param path_data The 'd' attribute string from an SVG <path> element.
+     * @param set The LaserSet to use for all drawing operations.
+     * @param tessellation_steps The number of line segments to use for approximating curves (Bézier, etc.).
+     */
+    void drawPath(cstr path_data, const LaserSet& set, uint tessellation_steps = 20);
+
     // Transformation commands
 	void resetTransformation();
 	void setRotation (float rad);
@@ -195,6 +204,15 @@ private:
 
 	
 	static void print_char (Point& textpos, float scale_x, float scale_y, const LaserSet& straight, const LaserSet& rounded, uint8_t& rmask, char c);
+
+    // SVG Path Helpers (Core 0)
+    float _parseNextFloat(char** s);
+    Point _parseNextPoint(char** s, Point current, bool is_relative);
+    Point _pointOnQuadraticBezier(Point p0, Point p1, Point p2, float t);
+    Point _pointOnCubicBezier(Point p0, Point p1, Point p2, Point p3, float t);
+    void _tessellateQuadraticBezier(Point p0, Point p1, Point p2, uint steps, const LaserSet& set);
+    void _tessellateCubicBezier(Point p0, Point p1, Point p2, Point p3, uint steps, const LaserSet& set);
+    void _drawPathParser(char* s, const LaserSet& set, uint steps);
 
     // PIO state machines
 	static constexpr uint sm_laser  = 0;
