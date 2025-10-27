@@ -148,9 +148,12 @@ public:
 	void drawTo (const Point& dest, const LaserSet&);
 	void drawLine (const Point& start, const Point& dest, const LaserSet&);
 	void drawRect (const Rect& rect, const LaserSet&);
+	void drawRect (const Rect& rect, float rotation_rad, const LaserSet& set);
 	void drawPolyLine (uint count, const Point points[], const LaserSet&, PolyLineOptions=POLYLINE_DEFAULT);
 	void drawPolyLine (uint count, std::function<Point()> nextPoint, const LaserSet&, PolyLineOptions=POLYLINE_DEFAULT);
 	void drawPolygon (uint count, const Point points[], const LaserSet&);
+	void drawPolygon (uint count, const Point points[], float rotation_rad, const LaserSet& set);
+	void drawPolygon (uint count, const Point points[], float rotation_rad, const Point& rotation_center, const LaserSet& set);
 	void drawEllipse (const Rect& bbox, float angle0, uint32_t steps, const LaserSet&);
 	void printText (Point start, float scale_x, float scale_y, cstr text, bool centered = false, const LaserSet& = laser_set[2], const LaserSet& = laser_set[4]);
 	
@@ -229,3 +232,4 @@ private:
 };
 
 #endif // XY2Galvo_H
+

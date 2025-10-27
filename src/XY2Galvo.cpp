@@ -483,6 +483,39 @@ void XY2Galvo::drawRect(const Rect &rect, const LaserSet &set)
     laser_queue.push(&set);
     laser_queue.push(rect);
 }
+
+// NEW FUNCTION: Overload for rotated drawRect
+// Rotates the rect around its own center.
+void XY2Galvo::drawRect(const Rect &rect, float rotation_rad, const LaserSet &set)
+{
+    if (rotation_rad == 0.0f)
+    {
+        drawRect(rect, set); // Call the original, fast CMD_RECT version
+        return;
+    }
+
+    Point center = rect.center();
+    Point corners[4] = {
+        rect.top_left(),
+        rect.top_right(),
+        rect.bottom_right(),
+        rect.bottom_left()};
+
+    Point rotated_corners[4];
+    float sin_r = sin(rotation_rad);
+    float cos_r = cos(rotation_rad);
+
+    for (int i = 0; i < 4; i++)
+    {
+        Dist d = corners[i] - center;
+        d.rotate(sin_r, cos_r); // Use the sin/cos version for efficiency
+        rotated_corners[i] = center + d;
+    }
+
+    // Send as a closed polyline
+    drawPolyLine(4, rotated_corners, set, POLYLINE_CLOSED);
+}
+
 void XY2Galvo::drawPolyLine(uint count, const Point points[], const LaserSet &set, PolyLineOptions flags)
 {
     laser_queue.push(CMD_POLYLINE);
@@ -506,6 +539,44 @@ void XY2Galvo::drawPolyLine(uint count, std::function<Point()> nextPoint, const 
 void XY2Galvo::drawPolygon(uint count, const Point points[], const LaserSet &set)
 {
     drawPolyLine(count, points, set, POLYLINE_CLOSED);
+}
+
+// NEW FUNCTION: Overload for rotated drawPolygon (defaults to rotating around 0,0)
+void XY2Galvo::drawPolygon(uint count, const Point points[], float rotation_rad, const LaserSet &set)
+{
+    // Default to rotating around origin (0,0)
+    drawPolygon(count, points, rotation_rad, Point(0, 0), set);
+}
+
+// NEW FUNCTION: Overload for rotated drawPolygon with a specific center
+void XY2Galvo::drawPolygon(uint count, const Point points[], float rotation_rad, const Point &rotation_center, const LaserSet &set)
+{
+    if (rotation_rad == 0.0f)
+    {
+        drawPolygon(count, points, set); // Call original
+        return;
+    }
+    if (count == 0)
+        return;
+
+    // This function runs on Core 0, so dynamic allocation is safe.
+    Point *rotated_points = new Point[count];
+    if (!rotated_points)
+        return; // Allocation failed
+
+    float sin_r = sin(rotation_rad);
+    float cos_r = cos(rotation_rad);
+
+    for (uint i = 0; i < count; i++)
+    {
+        Dist d = points[i] - rotation_center;
+        d.rotate(sin_r, cos_r);
+        rotated_points[i] = rotation_center + d;
+    }
+
+    drawPolygon(count, rotated_points, set); // This calls the original polygon function
+
+    delete[] rotated_points;
 }
 
 void XY2Galvo::update_transformation()
@@ -731,6 +802,7 @@ Point XY2Galvo::_pointOnCubicBezier(Point p0, Point p1, Point p2, Point p3, floa
     return Point(r.dx, r.dy);
 }
 
+
 /**
  * @brief Tessellates a quadratic Bézier curve and sends it to the queue.
  */
@@ -815,7 +887,7 @@ void XY2Galvo::_drawPathParser(char *s, const LaserSet &set, uint steps)
             path_start_pos = current_pos;
             moveTo(current_pos);
         }
-        break;
+            break;
 
         case 'm': // MoveTo (Relative)
         {
@@ -823,49 +895,49 @@ void XY2Galvo::_drawPathParser(char *s, const LaserSet &set, uint steps)
             path_start_pos = current_pos;
             moveTo(current_pos);
         }
-        break;
+            break;
 
         case 'L': // LineTo (Absolute)
         {
             current_pos = _parseNextPoint(&s, current_pos, false);
             drawTo(current_pos, set);
         }
-        break;
+            break;
 
         case 'l': // LineTo (Relative)
         {
             current_pos = _parseNextPoint(&s, current_pos, true);
             drawTo(current_pos, set);
         }
-        break;
+            break;
 
         case 'H': // Horizontal LineTo (Absolute)
         {
             current_pos.x = _parseNextFloat(&s);
             drawTo(current_pos, set);
         }
-        break;
+            break;
 
         case 'h': // Horizontal LineTo (Relative)
         {
             current_pos.x += _parseNextFloat(&s);
             drawTo(current_pos, set);
         }
-        break;
+            break;
 
         case 'V': // Vertical LineTo (Absolute)
         {
             current_pos.y = _parseNextFloat(&s);
             drawTo(current_pos, set);
         }
-        break;
+            break;
 
         case 'v': // Vertical LineTo (Relative)
         {
             current_pos.y += _parseNextFloat(&s);
             drawTo(current_pos, set);
         }
-        break;
+            break;
 
         case 'Z': // ClosePath
         case 'z':
@@ -876,7 +948,7 @@ void XY2Galvo::_drawPathParser(char *s, const LaserSet &set, uint steps)
             }
             current_pos = path_start_pos;
         }
-        break;
+            break;
 
         case 'C': // Cubic Bezier (Absolute)
         {
@@ -886,8 +958,8 @@ void XY2Galvo::_drawPathParser(char *s, const LaserSet &set, uint steps)
             _tessellateCubicBezier(current_pos, p1, p2, p_end, steps, set);
             current_pos = p_end;
             last_control_point = p2;
-            break;
-        }
+            
+        }break;
 
         case 'c': // Cubic Bezier (Relative)
         {
@@ -897,8 +969,8 @@ void XY2Galvo::_drawPathParser(char *s, const LaserSet &set, uint steps)
             _tessellateCubicBezier(current_pos, p1, p2, p_end, steps, set);
             current_pos = p_end;
             last_control_point = p2;
-            break;
-        }
+            
+        }break;
 
         case 'S': // Smooth Cubic Bezier (Absolute)
         {
@@ -909,8 +981,8 @@ void XY2Galvo::_drawPathParser(char *s, const LaserSet &set, uint steps)
             _tessellateCubicBezier(current_pos, p1, p2, p_end, steps, set);
             current_pos = p_end;
             last_control_point = p2;
-            break;
-        }
+            
+        }break;
 
         case 's': // Smooth Cubic Bezier (Relative)
         {
@@ -921,8 +993,8 @@ void XY2Galvo::_drawPathParser(char *s, const LaserSet &set, uint steps)
             _tessellateCubicBezier(current_pos, p1, p2, p_end, steps, set);
             current_pos = p_end;
             last_control_point = p2;
-            break;
-        }
+            
+        }break;
 
         case 'Q': // Quadratic Bezier (Absolute)
         {
@@ -931,8 +1003,8 @@ void XY2Galvo::_drawPathParser(char *s, const LaserSet &set, uint steps)
             _tessellateQuadraticBezier(current_pos, p1, p_end, steps, set);
             current_pos = p_end;
             last_control_point = p1; // For T/t
-            break;
-        }
+            
+        }break;
 
         case 'q': // Quadratic Bezier (Relative)
         {
@@ -941,8 +1013,8 @@ void XY2Galvo::_drawPathParser(char *s, const LaserSet &set, uint steps)
             _tessellateQuadraticBezier(current_pos, p1, p_end, steps, set);
             current_pos = p_end;
             last_control_point = p1; // For T/t
-            break;
-        }
+            
+        }break;
 
         case 'T': // Smooth Quadratic Bezier (Absolute)
         {
@@ -952,9 +1024,8 @@ void XY2Galvo::_drawPathParser(char *s, const LaserSet &set, uint steps)
             _tessellateQuadraticBezier(current_pos, p1, p_end, steps, set);
             current_pos = p_end;
             last_control_point = p1;
-            break;
         }
-
+        break;
         case 't': // Smooth Quadratic Bezier (Relative)
         {
             // p1 is reflection of last_control_point
@@ -963,8 +1034,8 @@ void XY2Galvo::_drawPathParser(char *s, const LaserSet &set, uint steps)
             _tessellateQuadraticBezier(current_pos, p1, p_end, steps, set);
             current_pos = p_end;
             last_control_point = p1;
-            break;
         }
+        break;
 
         case 'A': // Arc (Absolute)
         case 'a': // Arc (Relative)
@@ -985,7 +1056,6 @@ void XY2Galvo::_drawPathParser(char *s, const LaserSet &set, uint steps)
 
         // Default: command not recognized, stop parsing
         default:
-            break;
             return;
         }
 
