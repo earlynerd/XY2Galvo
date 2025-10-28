@@ -14,7 +14,7 @@
 #include "basic_geometry.h"
 #include "Queue.h"
 #include "XY2-100.pio.h"
-
+#define SCAN_MAX	0xffff
 // --- Merged from standard_types.h & cdefs.h ---
 //using float = float;
 typedef const char* cstr;
@@ -54,8 +54,8 @@ constexpr uint PIN_XY2_SYNC_XY    = 16; // Synchronization for PIO state machine
 constexpr uint PIN_XY2_LASER	  = 22; // Laser ON/OFF control
 
 
-constexpr int32_t SCANNER_MAX = 0xffff;
-constexpr float SCANNER_MAX_SWIVELS = 15000.0f / 120.0f;
+constexpr int32_t SCANNER_MAX = SCAN_MAX;
+constexpr float SCANNER_MAX_SWIVELS = 10000.0f / 120.0f;
 constexpr float SCANNER_WIDTH = 0x10000;
 constexpr float SCANNER_MAX_SPEED = SCANNER_MAX_SWIVELS * SCANNER_WIDTH / XY2_DATA_CLOCK;
 // --- End Merged ---
@@ -186,7 +186,7 @@ public:
     void scale(float s);
     void scale(float sx, float sy);
     void addOffset(float dx, float dy);
-
+	const Rect WORKSPACE_BOUNDS={SCAN_MAX, -SCAN_MAX, -SCAN_MAX, SCAN_MAX};
 
 private:
 	static void worker();
@@ -222,7 +222,7 @@ private:
 	static constexpr uint sm_clock  = 1;
 	static constexpr uint sm_x      = 2;
 	static constexpr uint sm_y      = 3;
-
+	
     // State variables
     static Point pos0;
     static Transformation transformation0;

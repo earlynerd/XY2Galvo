@@ -4,6 +4,9 @@
 // Copyright (c) 2021 kio@little-bat.de
 // BSD 2-clause license
 
+
+
+
 #pragma once
 
 #include <cmath>
@@ -323,6 +326,172 @@ struct TRect
 	// If the Dist is negative then the Rect will grow.
 	void shrink (T d) noexcept { grow(-d); }
 };
+
+// --- NEW COLLISION FUNCTIONS ---
+
+/**
+ * @brief Calculates the cross product of two 2D vectors (z-component).
+ */
+template<typename T>
+T cross_product(const TDist<T>& a, const TDist<T>& b) {
+    return a.dx * b.dy - a.dy * b.dx;
+}
+
+/**
+ * @brief Checks if point q lies on the line segment 'pr'.
+ */
+template<typename T>
+bool onSegment(const TPoint<T>& p, const TPoint<T>& q, const TPoint<T>& r) {
+    return (q.x <= max(p.x, r.x) && q.x >= min(p.x, r.x) &&
+            q.y <= max(p.y, r.y) && q.y >= min(p.y, r.y));
+}
+
+/**
+ * @brief Finds the orientation of ordered triplet (p, q, r).
+ * @return 0 --> p, q and r are colinear
+ * 1 --> Clockwise
+ * 2 --> Counterclockwise
+ */
+template<typename T>
+int orientation(const TPoint<T>& p, const TPoint<T>& q, const TPoint<T>& r) {
+    T val = (q.y - p.y) * (r.x - q.x) - (q.x - p.x) * (r.y - q.y);
+    if (val == 0) return 0;  // colinear
+    return (val > 0) ? 1 : 2; // clock or counterclock wise
+}
+
+/**
+ * @brief Checks if line segment 'p1q1' intersects with line segment 'p2q2'.
+ */
+template<typename T>
+bool intersects(const TPoint<T>& p1, const TPoint<T>& q1, const TPoint<T>& p2, const TPoint<T>& q2) {
+    // Find the four orientations needed for general and special cases
+    int o1 = orientation(p1, q1, p2);
+    int o2 = orientation(p1, q1, q2);
+    int o3 = orientation(p2, q2, p1);
+    int o4 = orientation(p2, q2, q1);
+
+    // General case
+    if (o1 != o2 && o3 != o4)
+        return true;
+
+    // Special Cases
+    // p1, q1 and p2 are colinear and p2 lies on segment p1q1
+    if (o1 == 0 && onSegment(p1, p2, q1)) return true;
+    // p1, q1 and q2 are colinear and q2 lies on segment p1q1
+    if (o2 == 0 && onSegment(p1, q2, q1)) return true;
+    // p2, q2 and p1 are colinear and p1 lies on segment p2q2
+    if (o3 == 0 && onSegment(p2, p1, q2)) return true;
+    // p2, q2 and q1 are colinear and q1 lies on segment p2q2
+    if (o4 == 0 && onSegment(p2, q1, q2)) return true;
+
+    return false; // Doesn't fall in any of the above cases
+}
+
+/**
+ * @brief Checks if two axis-aligned rectangles intersect.
+ */
+template<typename T>
+bool intersects(const TRect<T>& a, const TRect<T>& b) {
+    return (a.left <= b.right &&
+            a.right >= b.left &&
+            a.bottom <= b.top &&
+            a.top >= b.bottom);
+}
+
+/**
+ * @brief Checks if one axis-aligned rectangle fully contains another.
+ */
+template<typename T>
+bool contains(const TRect<T>& outer, const TRect<T>& inner) {
+    return (outer.left <= inner.left &&
+            outer.right >= inner.right &&
+            outer.bottom <= inner.bottom &&
+            outer.top >= inner.top);
+}
+
+/**
+ * @brief Gets the axis-aligned bounding box for a polygon.
+ */
+template<typename T>
+TRect<T> getBounds(const TPoint<T> poly[], uint count) {
+    if (count == 0) return TRect<T>(0, 0, 0, 0);
+    
+    T minX = poly[0].x, maxX = poly[0].x;
+    T minY = poly[0].y, maxY = poly[0].y;
+
+    for (uint i = 1; i < count; i++) {
+        minX = min(minX, poly[i].x);
+        maxX = max(maxX, poly[i].x);
+        minY = min(minY, poly[i].y);
+        maxY = max(maxY, poly[i].y);
+    }
+    return TRect<T>(maxY, minX, minY, maxX);
+}
+
+/**
+ * @brief Checks if a polygon intersects with a rectangle.
+ * Note: This is a full segment-by-segment check.
+ */
+template<typename T>
+bool intersects(const TRect<T>& rect, const TPoint<T> poly[], uint count) {
+    if (count == 0) return false;
+
+    // 1. Check if polygon is fully inside the rect
+    if (rect.contains(poly[0])) return true;
+
+    // 2. Check if rect is fully inside the polygon
+    // (Skipping this complex check for simplicity, focusing on edge intersection)
+
+    // 3. Check if any polygon segment intersects any rect segment
+    TPoint<T> rect_corners[4] = {
+        rect.top_left(),
+        rect.top_right(),
+        rect.bottom_right(),
+        rect.bottom_left()
+    };
+
+    for (uint i = 0; i < 4; i++) {
+        TPoint<T> r1 = rect_corners[i];
+        TPoint<T> r2 = rect_corners[(i + 1) % 4];
+        for (uint j = 0; j < count; j++) {
+            TPoint<T> p1 = poly[j];
+            TPoint<T> p2 = poly[(j + 1) % count];
+            if (intersects(r1, r2, p1, p2)) return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * @brief Checks if two polygons intersect (segment-by-segment check).
+ * This works for convex and concave polygons.
+ */
+template<typename T>
+bool intersects(const TPoint<T> poly1[], uint count1, const TPoint<T> poly2[], uint count2) {
+    if (count1 == 0 || count2 == 0) return false;
+
+    // 1. Coarse check: bounding boxes
+    TRect<T> bounds1 = getBounds(poly1, count1);
+    TRect<T> bounds2 = getBounds(poly2, count2);
+    if (!intersects(bounds1, bounds2)) {
+        return false; // Bounding boxes don't touch, so polygons can't
+    }
+
+    // 2. Fine check: all line segments
+    for (uint i = 0; i < count1; i++) {
+        TPoint<T> p1 = poly1[i];
+        TPoint<T> p2 = poly1[(i + 1) % count1];
+        for (uint j = 0; j < count2; j++) {
+            TPoint<T> p3 = poly2[j];
+            TPoint<T> p4 = poly2[(j + 1) % count2];
+            if (intersects(p1, p2, p3, p4)) return true;
+        }
+    }
+    return false;
+}
+
+// --- END COLLISION FUNCTIONS ---
+
 template<typename T>
 struct TTransformation
 {
