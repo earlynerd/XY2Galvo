@@ -4,6 +4,8 @@
 #include <cstring>
 #include "vt_vector_font.h"
 
+volatile bool XY2Galvo::_abortRequest = false;
+
 // --- Global state for the library ---
 LaserQueue laser_queue;
 Point XY2Galvo::pos0;
@@ -93,6 +95,7 @@ XY2Galvo::XY2Galvo() {}
 
 void XY2Galvo::init()
 {
+    _abortRequest = false;
     uint mask = (1u << PIN_XY2_LASER) | (1u << PIN_XY2_SYNC_XY) | (3u << PIN_XY2_CLOCK) | (3u << PIN_XY2_SYNC) | (3u << PIN_XY2_X) | (3u << PIN_XY2_Y);
     pio_sm_set_pins_with_mask(PIO_XY2, sm_x, ~(1u << PIN_XY2_LASER), mask);
     pio_sm_set_pindirs_with_mask(PIO_XY2, sm_x, -1u, mask);
@@ -137,6 +140,11 @@ void XY2Galvo::init()
     vt_init_vector_font();
 }
 
+void XY2Galvo::requestAbort()
+{
+     _abortRequest = true; 
+}
+
 void XY2Galvo::start()
 {
     if (!core1_running)
@@ -169,6 +177,17 @@ __attribute__((noreturn)) void XY2Galvo::worker()
 
     for (;;)
     {
+        if (_abortRequest)
+        {
+            // Core 1 owns the queue, so it can safely clear it
+            while (laser_queue.avail())
+                laser_queue.pop();
+
+            // Turn off laser
+            
+
+            _abortRequest = false;
+        }
         DrawCmd cmd = laser_queue.pop().cmd;
         switch (cmd)
         {
@@ -802,7 +821,6 @@ Point XY2Galvo::_pointOnCubicBezier(Point p0, Point p1, Point p2, Point p3, floa
     return Point(r.dx, r.dy);
 }
 
-
 /**
  * @brief Tessellates a quadratic Bézier curve and sends it to the queue.
  */
@@ -887,7 +905,7 @@ void XY2Galvo::_drawPathParser(char *s, const LaserSet &set, uint steps)
             path_start_pos = current_pos;
             moveTo(current_pos);
         }
-            break;
+        break;
 
         case 'm': // MoveTo (Relative)
         {
@@ -895,49 +913,49 @@ void XY2Galvo::_drawPathParser(char *s, const LaserSet &set, uint steps)
             path_start_pos = current_pos;
             moveTo(current_pos);
         }
-            break;
+        break;
 
         case 'L': // LineTo (Absolute)
         {
             current_pos = _parseNextPoint(&s, current_pos, false);
             drawTo(current_pos, set);
         }
-            break;
+        break;
 
         case 'l': // LineTo (Relative)
         {
             current_pos = _parseNextPoint(&s, current_pos, true);
             drawTo(current_pos, set);
         }
-            break;
+        break;
 
         case 'H': // Horizontal LineTo (Absolute)
         {
             current_pos.x = _parseNextFloat(&s);
             drawTo(current_pos, set);
         }
-            break;
+        break;
 
         case 'h': // Horizontal LineTo (Relative)
         {
             current_pos.x += _parseNextFloat(&s);
             drawTo(current_pos, set);
         }
-            break;
+        break;
 
         case 'V': // Vertical LineTo (Absolute)
         {
             current_pos.y = _parseNextFloat(&s);
             drawTo(current_pos, set);
         }
-            break;
+        break;
 
         case 'v': // Vertical LineTo (Relative)
         {
             current_pos.y += _parseNextFloat(&s);
             drawTo(current_pos, set);
         }
-            break;
+        break;
 
         case 'Z': // ClosePath
         case 'z':
@@ -948,7 +966,7 @@ void XY2Galvo::_drawPathParser(char *s, const LaserSet &set, uint steps)
             }
             current_pos = path_start_pos;
         }
-            break;
+        break;
 
         case 'C': // Cubic Bezier (Absolute)
         {
@@ -958,8 +976,8 @@ void XY2Galvo::_drawPathParser(char *s, const LaserSet &set, uint steps)
             _tessellateCubicBezier(current_pos, p1, p2, p_end, steps, set);
             current_pos = p_end;
             last_control_point = p2;
-            
-        }break;
+        }
+        break;
 
         case 'c': // Cubic Bezier (Relative)
         {
@@ -969,8 +987,8 @@ void XY2Galvo::_drawPathParser(char *s, const LaserSet &set, uint steps)
             _tessellateCubicBezier(current_pos, p1, p2, p_end, steps, set);
             current_pos = p_end;
             last_control_point = p2;
-            
-        }break;
+        }
+        break;
 
         case 'S': // Smooth Cubic Bezier (Absolute)
         {
@@ -981,8 +999,8 @@ void XY2Galvo::_drawPathParser(char *s, const LaserSet &set, uint steps)
             _tessellateCubicBezier(current_pos, p1, p2, p_end, steps, set);
             current_pos = p_end;
             last_control_point = p2;
-            
-        }break;
+        }
+        break;
 
         case 's': // Smooth Cubic Bezier (Relative)
         {
@@ -993,8 +1011,8 @@ void XY2Galvo::_drawPathParser(char *s, const LaserSet &set, uint steps)
             _tessellateCubicBezier(current_pos, p1, p2, p_end, steps, set);
             current_pos = p_end;
             last_control_point = p2;
-            
-        }break;
+        }
+        break;
 
         case 'Q': // Quadratic Bezier (Absolute)
         {
@@ -1003,8 +1021,8 @@ void XY2Galvo::_drawPathParser(char *s, const LaserSet &set, uint steps)
             _tessellateQuadraticBezier(current_pos, p1, p_end, steps, set);
             current_pos = p_end;
             last_control_point = p1; // For T/t
-            
-        }break;
+        }
+        break;
 
         case 'q': // Quadratic Bezier (Relative)
         {
@@ -1013,8 +1031,8 @@ void XY2Galvo::_drawPathParser(char *s, const LaserSet &set, uint steps)
             _tessellateQuadraticBezier(current_pos, p1, p_end, steps, set);
             current_pos = p_end;
             last_control_point = p1; // For T/t
-            
-        }break;
+        }
+        break;
 
         case 'T': // Smooth Quadratic Bezier (Absolute)
         {

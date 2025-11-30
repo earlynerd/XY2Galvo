@@ -122,7 +122,7 @@ enum PolyLineOptions
 	POLYLINE_CLOSED   = 4
 };
 
-class LaserQueue : public Queue<Data32, 256>
+class LaserQueue : public Queue<Data32, 4096>
 {
 public:
 	void push (Data32 data);
@@ -156,7 +156,7 @@ public:
 	void drawPolygon (uint count, const Point points[], float rotation_rad, const Point& rotation_center, const LaserSet& set);
 	void drawEllipse (const Rect& bbox, float angle0, uint32_t steps, const LaserSet&);
 	void printText (Point start, float scale_x, float scale_y, cstr text, bool centered = false, const LaserSet& = laser_set[2], const LaserSet& = laser_set[4]);
-	
+	static void requestAbort();
     /**
      * @brief Draws a vector path defined by an SVG path string.
      * @param path_data The 'd' attribute string from an SVG <path> element.
@@ -189,8 +189,10 @@ public:
 	const Rect WORKSPACE_BOUNDS={SCAN_MAX, -SCAN_MAX, -SCAN_MAX, SCAN_MAX};
 
 private:
-	static void worker();
 
+static volatile bool _abortRequest;
+	static void worker();
+	
 	void update_transformation ();
 	static uint delayed_laser_value (uint value);
 
